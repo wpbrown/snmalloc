@@ -248,7 +248,7 @@ if(NOT DEFINED SNMALLOC_ONLY_HEADER_LIBRARY)
 
   if(NOT WIN32)
     set(SHARED_FILES src/override/new.cc)
-    add_shim(snmallocshim SHARED ${SHARED_FILES})
+    add_shim(snmallocshim SHARED ${SHARED_FILES} src/override/memcpy.cc)
     add_shim(snmallocshim-checks SHARED ${SHARED_FILES})
     target_compile_definitions(snmallocshim-checks PRIVATE SNMALLOC_CHECK_CLIENT)
   endif()
