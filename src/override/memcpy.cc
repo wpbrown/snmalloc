@@ -32,8 +32,8 @@ using namespace snmalloc;
 
 // glibc lacks snprintf_l
 #ifdef __linux__
-#define snprintf_l(buf, size, loc, msg, ...) \
-          snprintf(buf, size, msg, __VA_ARGS__)
+#  define snprintf_l(buf, size, loc, msg, ...) \
+    snprintf(buf, size, msg, __VA_ARGS__)
 #endif
 
 namespace
@@ -92,78 +92,13 @@ namespace
     ;
 
   /**
-   * Helper that maps from a size to a type.
+   * Copy a single element of a specified size.  Uses a compiler builtin that
+   * expands to a single load and store.
    */
   template<size_t Size>
-  struct TypeForSizeHelper
-  {
-  private:
-    /**
-     * A vector type that is wide enough for the size.
-     */
-    using vector = __attribute__((vector_size(Size))) uint8_t;
-
-  public:
-    /**
-     * If this vector size exists in our target, expose it, otherwise this will
-     * expand to `void` and uses will fail.
-     */
-    using type = std::conditional_t<
-      bits::is_pow2(Size) && (Size <= LargestRegisterSize),
-      vector,
-      void>;
-  };
-
-  /**
-   * Concrete specialisation: 1 => uint8_t.
-   */
-  template<>
-  struct TypeForSizeHelper<1>
-  {
-    using type = uint8_t;
-  };
-
-  /**
-   * Concrete specialisation: 2 => uint16_t.
-   */
-  template<>
-  struct TypeForSizeHelper<2>
-  {
-    using type = uint16_t;
-  };
-
-  /**
-   * Concrete specialisation: 4 => uint32_t.
-   */
-  template<>
-  struct TypeForSizeHelper<4>
-  {
-    using type = uint32_t;
-  };
-
-  /**
-   * Concrete specialisation: 8 => uint64_t.
-   */
-  template<>
-  struct TypeForSizeHelper<8>
-  {
-    using type = uint64_t;
-  };
-
-  /**
-   * Wrapper that uses `TypeForSizeHelper` to map from a size in char units to
-   * a type.
-   */
-  template<size_t Size>
-  using TypeForSize = typename TypeForSizeHelper<Size>::type;
-
-  /**
-   * Copy a single element of a specified type.
-   */
-  template<typename T>
   SNMALLOC_FAST_PATH void copy_one(void* dst, const void* src)
   {
-    *static_cast<T*>(dst) = *static_cast<const T*>(src);
+    __builtin_memcpy_inline(dst, src, Size);
   }
 
   /**
@@ -188,7 +123,7 @@ namespace
       void* p = const_cast<void*>(ptr);
 
       // FIXME: Overflow checking.
-      if (likely(
+      if (unlikely(
             pointer_offset(ptr, len) > alloc.external_pointer<OnePastEnd>(p)))
       {
         if constexpr (FailFast)
@@ -218,19 +153,15 @@ namespace
   }
 
   /**
-   * Copy a block using the specified type.  This copies as many complete
-   * elements of type `T` as are possible from `len`.
+   * Copy a block using the specified size.  This copies as many complete
+   * chunks of size `Size` as are possible from `len`.
    */
-  template<typename T>
+  template<size_t Size>
   SNMALLOC_FAST_PATH void block_copy(void* dst, const void* src, size_t len)
   {
-    // Rounds down
-    size_t count = len / sizeof(T);
-    auto s = static_cast<const T*>(src);
-    auto d = static_cast<T*>(dst);
-    for (size_t i = 0; i < count; i += 1)
+    for (size_t i = 0; (i + Size) <= len; i += Size)
     {
-      d[i] = s[i];
+      copy_one<Size>(pointer_offset(dst, i), pointer_offset(src, i));
     }
   }
 
@@ -239,12 +170,11 @@ namespace
    * unaligned) `T` from the end of the source to the end of the destination.
    * This may overlap other bits of the copy.
    */
-  template<typename T>
+  template<size_t Size>
   SNMALLOC_FAST_PATH void copy_end(void* dst, const void* src, size_t len)
   {
-    copy_one<T>(
-      pointer_offset(dst, len - sizeof(T)),
-      pointer_offset(src, len - sizeof(T)));
+    copy_one<Size>(
+      pointer_offset(dst, len - Size), pointer_offset(src, len - Size));
   }
 
   /**
@@ -270,87 +200,22 @@ extern "C"
     // pointer checks if we hit it.  It's also the fastest case, to encourage
     // the compiler to favour the other cases.
     if (unlikely(len == 0))
+    {
       return dst;
+    }
     // Check the bounds of the arguments.
     check_bounds(
       dst, len, "memcpy with destination out of bounds of heap allocation");
     check_bounds<true>(
-      src, len, "memcpy with destination out of bounds of heap allocation");
-    // Handle some small common sizes with a jump table.
-    switch (len)
+      src, len, "memcpy with source out of bounds of heap allocation");
+    // If this is a small size, do byte-by-byte copies.
+    if (len < LargestRegisterSize)
     {
-      case 1:
-        copy_one<TypeForSize<1>>(dst, src);
-        return dst;
-      case 2:
-        copy_one<TypeForSize<2>>(dst, src);
-        return dst;
-      case 4:
-        copy_one<TypeForSize<4>>(dst, src);
-        return dst;
-      case 8:
-        copy_one<TypeForSize<8>>(dst, src);
-        return dst;
-      case 16:
-        // Only enable this and the larger vector sizes if we have a type that
-        // handles them.
-        if constexpr (LargestRegisterSize >= 16)
-        {
-          if (is_aligned_memcpy<16>(dst, src))
-          {
-            copy_one<TypeForSize<16>>(dst, src);
-            return dst;
-          }
-        }
-        break;
-      case 32:
-        if constexpr (LargestRegisterSize >= 32)
-        {
-          if (is_aligned_memcpy<32>(dst, src))
-          {
-            copy_one<TypeForSize<32>>(dst, src);
-            return dst;
-          }
-        }
-        break;
-      case 64:
-        if constexpr (LargestRegisterSize >= 64)
-        {
-          if (is_aligned_memcpy<64>(dst, src))
-          {
-            copy_one<TypeForSize<64>>(dst, src);
-            return dst;
-          }
-        }
-        break;
-    }
-    // If this is a small but weird size, do byte-by-byte copies.
-    if (len < sizeof(uint64_t))
-    {
-      block_copy<uint8_t>(dst, src, len);
+      block_copy<1>(dst, src, len);
       return dst;
     }
-    // If we have a useful vector size, try using it.
-    if constexpr (LargestRegisterSize > sizeof(uint64_t))
-    {
-      // TODO: We're only copying strongly aligned things with vector
-      // instructions.  We could do better by aligning the start and end.
-      if (is_aligned_memcpy<LargestRegisterSize>(dst, src) && 0)
-      {
-        block_copy<TypeForSize<LargestRegisterSize>>(dst, src, len);
-        size_t unaligned_tail = bits::align_down(len, LargestRegisterSize);
-        void* dst_tail = pointer_offset(dst, unaligned_tail);
-        void* src_tail = pointer_offset(src, unaligned_tail);
-        size_t len_tail = len - unaligned_tail;
-        block_copy<uint64_t>(dst_tail, src_tail, len_tail);
-        copy_end<uint64_t>(dst_tail, src_tail, len_tail);
-        return dst;
-      }
-    }
-    // Copy in a loop of 8-byte copies.
-    block_copy<uint64_t>(dst, src, len);
-    // Branchless copy of the last 0-7 bytes.
-    copy_end<uint64_t>(dst, src, len);
+    block_copy<LargestRegisterSize>(dst, src, len);
+    copy_end<LargestRegisterSize>(dst, src, len);
     return dst;
   }
 }
