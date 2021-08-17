@@ -101,6 +101,27 @@ namespace
     __builtin_memcpy_inline(dst, src, Size);
   }
 
+  SNMALLOC_SLOW_PATH
+  void crashWithMessage
+    [[noreturn]] (void* p, size_t len, const char* msg, auto& alloc)
+  {
+    // We're going to crash the program now, but try to avoid heap
+    // allocations if possible, since the heap may be in an undefined
+    // state.
+    std::array<char, 1024> buffer;
+    snprintf_l(
+      buffer.data(),
+      buffer.size(),
+      /* Force C locale */ nullptr,
+      "%s: %p is in allocation %p--%p, offset 0x%zx is past the end.\n",
+      msg,
+      p,
+      alloc.template external_pointer<Start>(p),
+      alloc.template external_pointer<OnePastEnd>(p),
+      len);
+    Pal::error(buffer.data());
+  }
+
   /**
    * Check whether a pointer + length is in the same object as the pointer.
    * Fail with the error message from the third argument if not.
@@ -114,11 +135,6 @@ namespace
   {
     if constexpr (!IsRead || CheckReads)
     {
-      if (unlikely(!call_is_initialised<snmalloc::Globals>(nullptr, 0)))
-      {
-        return;
-      }
-
       auto& alloc = ThreadAlloc::get();
       void* p = const_cast<void*>(ptr);
 
@@ -132,21 +148,7 @@ namespace
         }
         else
         {
-          // We're going to crash the program now, but try to avoid heap
-          // allocations if possible, since the heap may be in an undefined
-          // state.
-          std::array<char, 1024> buffer;
-          snprintf_l(
-            buffer.data(),
-            buffer.size(),
-            /* Force C locale */ nullptr,
-            "%s: %p is in allocation %p--%p, offset 0x%zx is past the end.\n",
-            msg,
-            p,
-            alloc.external_pointer<Start>(p),
-            alloc.external_pointer<OnePastEnd>(p),
-            len);
-          Pal::error(buffer.data());
+          crashWithMessage(p, len, msg, alloc);
         }
       }
     }
