@@ -98,7 +98,22 @@ namespace
   template<size_t Size>
   SNMALLOC_FAST_PATH void copy_one(void* dst, const void* src)
   {
+#if __has_builtin(__builtin_memcpy_inline)
     __builtin_memcpy_inline(dst, src, Size);
+#else
+    // Define a structure of size `Size` that has alignment 1 and a default
+    // copy-assignment operator.  We can then copy the data as this type.  The
+    // compiler knows the exact width and so will generate the correct wide
+    // instruction for us (clang 10 and gcc 12 both generate movups for the
+    // 16-byte version of this when targeting SSE.
+    struct Block
+    {
+      char data[Size];
+    };
+    auto* d = static_cast<Block*>(dst);
+    auto* s = static_cast<const Block*>(src);
+    *d = *s;
+#endif
   }
 
   SNMALLOC_SLOW_PATH
