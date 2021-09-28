@@ -220,6 +220,7 @@ namespace snmalloc
       auto p_ret = CapPtr<void, CBAllocE>(p_raw);
       auto p_auth = large_allocator.capptr_amplify(p_ret);
 
+      stats().dealloc_request(size);
       if (sizeclass < NUM_SMALL_CLASSES)
       {
         auto super = Superslab::get(p_auth);
@@ -254,6 +255,7 @@ namespace snmalloc
       auto p_ret = CapPtr<void, CBAllocE>(p_raw);
       auto p_auth = large_allocator.capptr_amplify(p_ret);
 
+      stats().dealloc_request(size);
       if (likely((size - 1) <= (sizeclass_to_size(NUM_SMALL_CLASSES - 1) - 1)))
       {
         auto super = Superslab::get(p_auth);

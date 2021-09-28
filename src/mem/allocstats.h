@@ -119,6 +119,10 @@ namespace snmalloc
       }
 #endif
     };
+    
+    size_t requested_bytes_guage = 0; 
+    size_t large_pop_count[LARGE_N] = {0};
+    size_t large_push_count[LARGE_N] = {0};
 
 #ifdef USE_SNMALLOC_STATS
     static constexpr size_t BUCKETS_BITS = 4;
@@ -129,9 +133,6 @@ namespace snmalloc
 
     Stats sizeclass[N];
 
-    size_t large_pop_count[LARGE_N] = {0};
-    size_t large_push_count[LARGE_N] = {0};
-
     size_t remote_freed = 0;
     size_t remote_posted = 0;
     size_t remote_received = 0;
@@ -140,17 +141,26 @@ namespace snmalloc
     size_t superslab_fresh_count = 0;
     size_t segment_count = 0;
     size_t bucketed_requests[TOTAL_BUCKETS] = {};
+#else
+    size_t sizeclass[N];
 #endif
 
     void alloc_request(size_t size)
     {
       UNUSED(size);
 
+      requested_bytes_guage += size;
+
 #ifdef USE_SNMALLOC_STATS
       auto index = (size == 0) ? 0 : bits::to_exp_mant<BUCKETS_BITS>(size);
       SNMALLOC_ASSERT(index < TOTAL_BUCKETS);
       bucketed_requests[index]++;
 #endif
+    }
+    
+    void dealloc_request(size_t size)
+    {
+      requested_bytes_guage -= size;
     }
 
     bool is_empty()
@@ -181,6 +191,8 @@ namespace snmalloc
 #ifdef USE_SNMALLOC_STATS
       sizeclass[sc].addToRunningAverage();
       sizeclass[sc].count.inc();
+#else
+      sizeclass[sc]++;
 #endif
     }
 
@@ -191,6 +203,8 @@ namespace snmalloc
 #ifdef USE_SNMALLOC_STATS
       sizeclass[sc].addToRunningAverage();
       sizeclass[sc].count.dec();
+#else
+      sizeclass[sc]--;
 #endif
     }
 
@@ -198,10 +212,8 @@ namespace snmalloc
     {
       UNUSED(sc);
 
-#ifdef USE_SNMALLOC_STATS
       SNMALLOC_ASSUME(sc < LARGE_N);
       large_pop_count[sc]++;
-#endif
     }
 
     void sizeclass_alloc_slab(sizeclass_t sc)
@@ -228,9 +240,7 @@ namespace snmalloc
     {
       UNUSED(sc);
 
-#ifdef USE_SNMALLOC_STATS
       large_push_count[sc]++;
-#endif
     }
 
     void segment_create()
@@ -290,9 +300,8 @@ namespace snmalloc
     {
       UNUSED(that);
 
-#ifdef USE_SNMALLOC_STATS
       for (size_t i = 0; i < N; i++)
-        sizeclass[i].add(that.sizeclass[i]);
+        sizeclass[i] += that.sizeclass[i];
 
       for (size_t i = 0; i < LARGE_N; i++)
       {
@@ -300,6 +309,9 @@ namespace snmalloc
         large_pop_count[i] += that.large_pop_count[i];
       }
 
+      requested_bytes_guage += that.requested_bytes_guage;
+
+#ifdef USE_SNMALLOC_STATS
       for (size_t i = 0; i < TOTAL_BUCKETS; i++)
         bucketed_requests[i] += that.bucketed_requests[i];
 

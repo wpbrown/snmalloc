@@ -1,7 +1,9 @@
 #define SNMALLOC_NAME_MANGLE(a) sn_##a
 #include "malloc.cc"
+#include "malloc-extensions.cc"
 
 #include <cstring>
+#include <iostream>
 
 #ifndef SNMALLOC_EXPORT
 #  define SNMALLOC_EXPORT
@@ -36,3 +38,10 @@ rust_realloc(void* ptr, size_t alignment, size_t old_size, size_t new_size)
   }
   return p;
 }
+
+extern "C" SNMALLOC_EXPORT void
+rust_get_malloc_info_x1(malloc_info_x1* ptr)
+{
+  get_malloc_info_x1(ptr);
+}
+

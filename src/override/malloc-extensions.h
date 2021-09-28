@@ -27,8 +27,17 @@ struct malloc_info_v1
   size_t peak_memory_usage;
 };
 
+struct malloc_info_x1
+{
+  size_t system_allocated_bytes;
+  size_t application_requested_bytes;
+  size_t application_allocated_bytes;
+};
+
 /**
  * Populates a malloc_info_v1 structure for the latest values
  * from snmalloc.
  */
 void get_malloc_info_v1(malloc_info_v1* stats);
+
+void get_malloc_info_x1(malloc_info_x1* stats);
