@@ -338,6 +338,7 @@ namespace snmalloc
         p = memory_provider.template reserve<false>(large_class);
         if (p == nullptr)
           return nullptr;
+        stats.chunk_bytes_guage += rsize;
         MemoryProvider::Pal::template notify_using<zero_mem>(
           p.unsafe_capptr, rsize);
       }
@@ -404,6 +405,7 @@ namespace snmalloc
 
       stats.superslab_push();
       memory_provider.push_large_stack(p, large_class);
+      stats.chunk_bytes_guage -= rsize;
     }
 
     template<typename T = void, typename U, capptr_bounds B>

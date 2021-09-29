@@ -43,4 +43,9 @@ struct malloc_info_x1
  */
 void get_malloc_info_v1(malloc_info_v1* stats);
 
-void get_malloc_info_x1(malloc_info_x1* stats);
+/**
+ * Populates a malloc_info_x1 structure for the latest values
+ * from snmalloc for process or thread respectively.
+ */
+void get_process_malloc_info_x1(malloc_info_x1* stats);
+void get_thread_malloc_info_x1(malloc_info_x1* stats);

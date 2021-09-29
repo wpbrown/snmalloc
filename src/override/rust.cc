@@ -40,8 +40,13 @@ rust_realloc(void* ptr, size_t alignment, size_t old_size, size_t new_size)
 }
 
 extern "C" SNMALLOC_EXPORT void
-rust_get_malloc_info_x1(malloc_info_x1* ptr)
+rust_get_process_malloc_info_x1(malloc_info_x1* ptr)
 {
-  get_malloc_info_x1(ptr);
+  get_process_malloc_info_x1(ptr);
 }
 
+extern "C" SNMALLOC_EXPORT void
+rust_get_thread_malloc_info_x1(malloc_info_x1* ptr)
+{
+  get_thread_malloc_info_x1(ptr);
+}
