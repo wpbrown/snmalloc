@@ -12,7 +12,6 @@ void get_malloc_info_v1(malloc_info_v1* stats)
 }
 
 void collect_internal_allocation_stats(Stats& internal_stats, malloc_info_x1& stats) {
-  stats.application_requested_bytes = internal_stats.requested_bytes_guage;
   stats.application_allocated_bytes = 0;
   stats.allocations_small = 0;
   stats.allocations_medium = 0;

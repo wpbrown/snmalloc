@@ -30,7 +30,6 @@ struct malloc_info_v1
 struct malloc_info_x1
 {
   size_t system_allocated_bytes;
-  size_t application_requested_bytes;
   size_t application_allocated_bytes;
   size_t allocations_small;
   size_t allocations_medium;

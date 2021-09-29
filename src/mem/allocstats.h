@@ -120,7 +120,6 @@ namespace snmalloc
 #endif
     };
     
-    size_t requested_bytes_guage = 0;
     size_t chunk_bytes_guage = 0; 
     size_t large_pop_count[LARGE_N] = {0};
     size_t large_push_count[LARGE_N] = {0};
@@ -150,18 +149,11 @@ namespace snmalloc
     {
       UNUSED(size);
 
-      requested_bytes_guage += size;
-
 #ifdef USE_SNMALLOC_STATS
       auto index = (size == 0) ? 0 : bits::to_exp_mant<BUCKETS_BITS>(size);
       SNMALLOC_ASSERT(index < TOTAL_BUCKETS);
       bucketed_requests[index]++;
 #endif
-    }
-    
-    void dealloc_request(size_t size)
-    {
-      requested_bytes_guage -= size;
     }
 
     bool is_empty()
@@ -310,7 +302,6 @@ namespace snmalloc
         large_pop_count[i] += that.large_pop_count[i];
       }
 
-      requested_bytes_guage += that.requested_bytes_guage;
 
 #ifdef USE_SNMALLOC_STATS
       for (size_t i = 0; i < TOTAL_BUCKETS; i++)
