@@ -3,7 +3,6 @@
 #include "malloc-extensions.cc"
 
 #include <cstring>
-#include <iostream>
 
 #ifndef SNMALLOC_EXPORT
 #  define SNMALLOC_EXPORT
