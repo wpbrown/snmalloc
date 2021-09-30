@@ -30,7 +30,9 @@ void collect_internal_allocation_stats(Stats& internal_stats, malloc_info_x1& st
 
   for (uint8_t i = 0; i < NUM_LARGE_CLASSES; i++)
   {
-    size_t count = internal_stats.large_pop_count[i] - internal_stats.large_push_count[i];
+    size_t pop_count = internal_stats.large_pop_count[i];
+    size_t push_count = internal_stats.large_push_count[i];  
+    size_t count = pop_count > push_count ? pop_count - push_count : 0;
     stats.application_allocated_bytes += count * large_sizeclass_to_size(i);
     stats.allocations_large += count; 
   }
