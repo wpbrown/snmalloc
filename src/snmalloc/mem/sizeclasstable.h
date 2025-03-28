@@ -129,17 +129,6 @@ namespace snmalloc
 
   using sizeclass_compress_t = uint8_t;
 
-  constexpr SNMALLOC_FAST_PATH static size_t
-  aligned_size(size_t alignment, size_t size)
-  {
-    // Client responsible for checking alignment is not zero
-    SNMALLOC_ASSERT(alignment != 0);
-    // Client responsible for checking alignment is a power of two
-    SNMALLOC_ASSERT(bits::is_pow2(alignment));
-
-    return ((alignment - 1) | (size - 1)) + 1;
-  }
-
   /**
    * This structure contains the fields required for fast paths for sizeclasses.
    */
@@ -468,6 +457,17 @@ namespace snmalloc
 
   constexpr SizeClassLookup sizeclass_lookup = SizeClassLookup();
 
+  /**
+   * @brief Returns true if the size is a small sizeclass. Note that
+   * 0 is not considered a small sizeclass.
+   */
+  constexpr bool is_small_sizeclass(size_t size)
+  {
+    // Perform the - 1 on size, so that zero wraps around and ends up on
+    // slow path.
+    return (size - 1) < sizeclass_to_size(NUM_SMALL_SIZECLASSES - 1);
+  }
+
   constexpr smallsizeclass_t size_to_sizeclass(size_t size)
   {
     auto index = sizeclass_lookup_index(size);
@@ -493,7 +493,7 @@ namespace snmalloc
    */
   static inline sizeclass_t size_to_sizeclass_full(size_t size)
   {
-    if ((size - 1) < sizeclass_to_size(NUM_SMALL_SIZECLASSES - 1))
+    if (is_small_sizeclass(size))
     {
       return sizeclass_t::from_small_class(size_to_sizeclass(size));
     }
@@ -504,26 +504,28 @@ namespace snmalloc
 
   inline SNMALLOC_FAST_PATH static size_t round_size(size_t size)
   {
-    if (size > sizeclass_to_size(NUM_SMALL_SIZECLASSES - 1))
+    if (is_small_sizeclass(size))
     {
-      if (size > bits::one_at_bit(bits::BITS - 1))
-      {
-        // This size is too large, no rounding should occur as will result in a
-        // failed allocation later.
-        return size;
-      }
-      return bits::next_pow2(size);
+      return sizeclass_to_size(size_to_sizeclass(size));
     }
-    // If realloc(ptr, 0) returns nullptr, some consumers treat this as a
-    // reallocation failure and abort.  To avoid this, we round up the size of
-    // requested allocations to the smallest size class.  This can be changed
-    // on any platform that's happy to return nullptr from realloc(ptr,0) and
-    // should eventually become a configuration option.
+
     if (size == 0)
     {
+      // If realloc(ptr, 0) returns nullptr, some consumers treat this as a
+      // reallocation failure and abort.  To avoid this, we round up the size of
+      // requested allocations to the smallest size class.  This can be changed
+      // on any platform that's happy to return nullptr from realloc(ptr,0) and
+      // should eventually become a configuration option.
       return sizeclass_to_size(size_to_sizeclass(1));
     }
-    return sizeclass_to_size(size_to_sizeclass(size));
+
+    if (size > bits::one_at_bit(bits::BITS - 1))
+    {
+      // This size is too large, no rounding should occur as will result in a
+      // failed allocation later.
+      return size;
+    }
+    return bits::next_pow2(size);
   }
 
   /// Returns the alignment that this size naturally has, that is
@@ -534,5 +536,42 @@ namespace snmalloc
     if (size == 0)
       return 1;
     return bits::one_at_bit(bits::ctz(rsize));
+  }
+
+  constexpr SNMALLOC_FAST_PATH static size_t
+  aligned_size(size_t alignment, size_t size)
+  {
+    // Client responsible for checking alignment is not zero
+    SNMALLOC_ASSERT(alignment != 0);
+    // Client responsible for checking alignment is a power of two
+    SNMALLOC_ASSERT(bits::is_pow2(alignment));
+
+    // There are a class of corner cases to consider
+    //    alignment = 0x8
+    //    size = 0xfff...fff7
+    // for this result will be 0.  This should fail an allocation, so we need to
+    // check for this overflow.
+    // However,
+    //    alignment = 0x8
+    //    size      = 0x0
+    // will also result in 0, but this should be allowed to allocate.
+    // So we need to check for overflow, and return SIZE_MAX in this first case,
+    // and 0 in the second.
+    size_t result = ((alignment - 1) | (size - 1)) + 1;
+    // The following code is designed to fuse well with a subsequent
+    // sizeclass calculation.  We use the same fast path constant to
+    // move the case where result==0 to the slow path, and then check for which
+    // case we are in.
+    if (is_small_sizeclass(result))
+      return result;
+
+    // We are in the slow path, so we need to check for overflow.
+    if (SNMALLOC_UNLIKELY(result == 0))
+    {
+      // Check for overflow and return the maximum size.
+      if (SNMALLOC_UNLIKELY(result < size))
+        return SIZE_MAX;
+    }
+    return result;
   }
 } // namespace snmalloc

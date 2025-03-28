@@ -3,13 +3,11 @@
 #include "../backend_helpers/backend_helpers.h"
 #include "backend.h"
 #include "meta_protected_range.h"
+#include "snmalloc/mem/secondary.h"
 #include "standard_range.h"
 
 namespace snmalloc
 {
-  // Forward reference to thread local cleanup.
-  void register_clean_up();
-
   /**
    * The default configuration for a global snmalloc.  It contains all the
    * datastructures to manage the memory from the OS.  It had several internal
@@ -27,8 +25,8 @@ namespace snmalloc
   template<typename ClientMetaDataProvider = NoClientMetaDataProvider>
   class StandardConfigClientMeta final : public CommonConfig
   {
-    using GlobalPoolState = PoolState<
-      CoreAllocator<StandardConfigClientMeta<ClientMetaDataProvider>>>;
+    using GlobalPoolState =
+      PoolState<Allocator<StandardConfigClientMeta<ClientMetaDataProvider>>>;
 
   public:
     using Pal = DefaultPal;
@@ -107,6 +105,8 @@ namespace snmalloc
         if (initialised)
           return;
 
+        SecondaryAllocator::initialize();
+
         LocalEntropy entropy;
         entropy.init<Pal>();
         // Initialise key for remote deallocation lists
@@ -155,15 +155,6 @@ namespace snmalloc
     static bool is_initialised()
     {
       return initialised;
-    }
-
-    // This needs to be a forward reference as the
-    // thread local state will need to know about this.
-    // This may allocate, so should only be called once
-    // a thread local allocator is available.
-    static void register_clean_up()
-    {
-      snmalloc::register_clean_up();
     }
   };
 } // namespace snmalloc

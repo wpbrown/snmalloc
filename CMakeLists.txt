@@ -37,6 +37,12 @@ cmake_dependent_option(SNMALLOC_STATIC_LIBRARY "Build static libraries" ON "NOT 
 cmake_dependent_option(SNMALLOC_CHECK_LOADS "Perform bounds checks on the source argument to memcpy with heap objects" OFF "NOT SNMALLOC_HEADER_ONLY_LIBRARY" OFF)
 cmake_dependent_option(SNMALLOC_OPTIMISE_FOR_CURRENT_MACHINE "Compile for current machine architecture" Off "NOT SNMALLOC_HEADER_ONLY_LIBRARY" OFF)
 cmake_dependent_option(SNMALLOC_PAGEID "Set an id to memory regions" OFF "NOT SNMALLOC_PAGEID" OFF)
+
+# GwpAsan secondary allocator
+option(SNMALLOC_ENABLE_GWP_ASAN_INTEGRATION "Enable GwpAsan as a secondary allocator" OFF)
+set(SNMALLOC_GWP_ASAN_INCLUDE_PATH "" CACHE PATH "GwpAsan header directory")
+set(SNMALLOC_GWP_ASAN_LIBRARY_PATH "" CACHE PATH "GwpAsan library directory")
+
 if (NOT SNMALLOC_HEADER_ONLY_LIBRARY)
   # Pick a sensible default for the thread cleanup mechanism
   if (${CMAKE_SYSTEM_NAME} STREQUAL FreeBSD)
@@ -114,6 +120,19 @@ int main()
 { return 0; }"
  SNMALLOC_LINKER_SUPPORT_NOSTDLIBXX)
 set(CMAKE_REQUIRED_LINK_OPTIONS "")
+
+# Detect if pthread_atfork works
+CHECK_CXX_SOURCE_COMPILES("
+#include <pthread.h>
+void prepare() {}
+void parent() {}
+void child() {}
+int main() {
+  pthread_atfork(prepare, parent, child);
+  return 0;
+}
+" SNMALLOC_PTHREAD_ATFORK_WORKS)
+
 
 if (NOT MSVC AND NOT (SNMALLOC_CLEANUP STREQUAL CXX11_DESTRUCTORS))
   # If the target compiler doesn't support -nostdlib++ then we must enable C at
@@ -242,6 +261,20 @@ if(SNMALLOC_USE_SELF_VENDORED_STL)
   target_compile_definitions(snmalloc INTERFACE SNMALLOC_USE_SELF_VENDORED_STL)
 endif()
 
+if (SNMALLOC_ENABLE_GWP_ASAN_INTEGRATION)
+  if (NOT EXISTS ${SNMALLOC_GWP_ASAN_INCLUDE_PATH})
+    message(FATAL_ERROR "GwpAsan cannot be enabled without setting SNMALLOC_GWP_ASAN_INCLUDE_PATH")
+  endif()
+  if (NOT EXISTS ${SNMALLOC_GWP_ASAN_LIBRARY_PATH})
+    message(FATAL_ERROR "GwpAsan cannot be enabled without setting SNMALLOC_GWP_ASAN_LIBRARY_PATH")
+  endif()
+  message(STATUS "GwpAsan is enabled: ${SNMALLOC_GWP_ASAN_LIBRARY_PATH}/libclang_rt.gwp_asan-${CMAKE_SYSTEM_PROCESSOR}.a")
+  target_include_directories(snmalloc INTERFACE ${SNMALLOC_GWP_ASAN_INCLUDE_PATH})
+  target_link_directories(snmalloc INTERFACE ${SNMALLOC_GWP_ASAN_LIBRARY_PATH})
+  target_compile_definitions(snmalloc INTERFACE -DSNMALLOC_ENABLE_GWP_ASAN_INTEGRATION)
+  target_link_libraries(snmalloc INTERFACE clang_rt.gwp_asan-${CMAKE_SYSTEM_PROCESSOR})
+endif()
+
 # https://learn.microsoft.com/en-us/cpp/build/reference/zc-cplusplus
 if(MSVC)
   target_compile_options(snmalloc INTERFACE "/Zc:__cplusplus")
@@ -301,6 +334,7 @@ add_as_define(SNMALLOC_QEMU_WORKAROUND)
 add_as_define(SNMALLOC_TRACING)
 add_as_define(SNMALLOC_CI_BUILD)
 add_as_define(SNMALLOC_PLATFORM_HAS_GETENTROPY)
+add_as_define(SNMALLOC_PTHREAD_ATFORK_WORKS)
 add_as_define(SNMALLOC_HAS_LINUX_RANDOM_H)
 add_as_define(SNMALLOC_HAS_LINUX_FUTEX_H)
 if (SNMALLOC_NO_REALLOCARRAY)
@@ -559,22 +593,9 @@ endif()
   endif()
 
   if (SNMALLOC_BUILD_TESTING)
-    if (WIN32
-    OR (CMAKE_SYSTEM_NAME STREQUAL NetBSD)
-    OR (CMAKE_SYSTEM_NAME STREQUAL OpenBSD)
-    OR (CMAKE_SYSTEM_NAME STREQUAL SunOS))
-    # Windows does not support aligned allocation well enough
-    # for pass through.
-    # NetBSD, OpenBSD and DragonFlyBSD do not support malloc*size calls.
-      set(FLAVOURS fast;check)
-    else()
-      set(FLAVOURS fast;check;malloc)
-    endif()
+    set(FLAVOURS fast;check)
 
     foreach(FLAVOUR ${FLAVOURS})
-      if (${FLAVOUR} STREQUAL "malloc")
-        set(DEFINES SNMALLOC_PASS_THROUGH)
-      endif()
       if (${FLAVOUR} STREQUAL "check")
         set(DEFINES SNMALLOC_CHECK_CLIENT)
       endif()
